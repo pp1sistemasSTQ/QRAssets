@@ -133,13 +133,12 @@ function compactarEspacioAntesDelDetalle(documentXml) {
   emptyParagraphs.slice(1).forEach((paragraph) => paragraph.parentNode.removeChild(paragraph))
 }
 
-const slug = (value) => value
-  .normalize('NFD')
-  .replace(/[\u0300-\u036f]/g, '')
-  .replace(/[^a-zA-Z0-9]+/g, '_')
-  .replace(/^_|_$/g, '')
+const nombreArchivo = (value) => value
+  .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '')
+  .replace(/\s+/g, ' ')
+  .trim()
 
-export async function descargarActaWord({ tipo, persona, ciudad, observaciones, items, fecha }) {
+export async function generarActaWord({ tipo, persona, ciudad, observaciones, items, fecha }) {
   if (!TEMPLATE_FILES[tipo]) throw new Error('Tipo de acta no soportado')
   if (!items?.length) throw new Error('El acta debe incluir al menos un activo')
   if (!persona.lugar_expedicion?.trim()) {
@@ -177,15 +176,26 @@ export async function descargarActaWord({ tipo, persona, ciudad, observaciones, 
   if (tipo === 'entrega') compactarEspacioAntesDelDetalle(documentXml)
 
   zip.file('word/document.xml', new XMLSerializer().serializeToString(documentXml))
-  const blob = zip.generate({
+  return zip.generate({
     type: 'blob',
     mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     compression: 'DEFLATE',
   })
+}
+
+export async function descargarActaWord(datos) {
+  const { tipo, persona } = datos
+  const blob = await generarActaWord(datos)
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
-  link.download = `Acta_${tipo}_${slug(persona.nombre_completo)}_${date.replaceAll('-', '')}.docx`
+  const tipoActa = tipo === 'entrega' ? 'Entrega' : 'Devolución'
+  const codigoFormato = tipo === 'entrega' ? 'STQ-FE-V002' : 'STQ-FD-V002'
+  const nombrePersona = nombreArchivo(persona.nombre_completo || 'Sin nombre')
+  const documento = nombreArchivo(persona.documento_identidad || 'Sin documento')
+  link.download = nombreArchivo(
+    `Formato Acta de ${tipoActa} - ${nombrePersona} - ${documento} - ${codigoFormato}`,
+  ) + '.docx'
   document.body.appendChild(link)
   link.click()
   link.remove()

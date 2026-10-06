@@ -1,8 +1,10 @@
 import { useCallback, useState } from 'react'
 import { supabaseConfigurado } from './lib/supabase'
-import { IconBox, IconHome, IconQr, IconReturn, IconScan, IconSend } from './components/Icons'
+import { IconBox, IconFile, IconHome, IconQr, IconReturn, IconScan, IconSend, IconUsers } from './components/Icons'
 import Dashboard from './pages/Dashboard'
 import Activos from './pages/Activos'
+import Empleados from './pages/Empleados'
+import Actas from './pages/Actas'
 import Entrega from './pages/Entrega'
 import Escanear from './pages/Escanear'
 import Devolucion from './pages/Devolucion'
@@ -11,6 +13,8 @@ import Setup from './pages/Setup'
 const NAV = [
   { id: 'inicio', label: 'Inicio', Icon: IconHome },
   { id: 'activos', label: 'Activos', Icon: IconBox },
+  { id: 'empleados', label: 'Empleados', Icon: IconUsers },
+  { id: 'actas', label: 'Actas', Icon: IconFile },
   { id: 'entrega', label: 'Entrega', Icon: IconSend },
   { id: 'escanear', label: 'Escanear', Icon: IconScan },
   { id: 'devolucion', label: 'Devolución', Icon: IconReturn },
@@ -63,6 +67,8 @@ export default function App() {
       <main className="content">
         {pagina === 'inicio' && <Dashboard {...props} />}
         {pagina === 'activos' && <Activos {...props} />}
+        {pagina === 'empleados' && <Empleados {...props} />}
+        {pagina === 'actas' && <Actas {...props} />}
         {pagina === 'entrega' && <Entrega {...props} />}
         {pagina === 'escanear' && <Escanear {...props} />}
         {pagina === 'devolucion' && <Devolucion {...props} />}

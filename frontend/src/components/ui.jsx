@@ -21,10 +21,16 @@ export function PageHeader({ titulo, subtitulo, children }) {
   )
 }
 
-export function Modal({ titulo, onClose, children }) {
+export function Modal({ titulo, onClose, children, className = '' }) {
   return (
     <div className="modal-bg" onClick={onClose}>
-      <div className="modal card" onClick={(e) => e.stopPropagation()} role="dialog" aria-label={titulo}>
+      <div
+        className={`modal card ${className}`}
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={titulo}
+      >
         <div className="modal-head">
           <h2>{titulo}</h2>
           <button className="btn ghost icon" onClick={onClose} aria-label="Cerrar">

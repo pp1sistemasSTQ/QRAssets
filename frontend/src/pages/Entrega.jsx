@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { getActivoPorQr, listActivos, registrarEntrega, subirActaFirmada, subirFirma } from '../lib/api'
+import {
+  buscarEmpleadoPorDocumento,
+  getActivoPorQr,
+  listActivos,
+  registrarEntrega,
+  subirActaFirmada,
+  subirFirma,
+} from '../lib/api'
 import { descargarActaWord } from '../lib/docx'
 import Scanner from '../components/Scanner'
 import { PageHeader } from '../components/ui'
@@ -24,6 +31,9 @@ export default function Entrega({ ir, notify }) {
   const [subiendoFirma, setSubiendoFirma] = useState(false)
   const [firmaGuardada, setFirmaGuardada] = useState(false)
   const [generandoActa, setGenerandoActa] = useState(false)
+  const [buscandoEmpleado, setBuscandoEmpleado] = useState(false)
+  const [documentoConsultado, setDocumentoConsultado] = useState('')
+  const solicitudEmpleadoRef = useRef(0)
   const seleccionRef = useRef([])
   seleccionRef.current = seleccion
 
@@ -35,6 +45,36 @@ export default function Entrega({ ir, notify }) {
 
   const alternar = (a) =>
     setSeleccion((s) => (s.some((x) => x.id === a.id) ? s.filter((x) => x.id !== a.id) : [...s, a]))
+
+  async function buscarEmpleado() {
+    const documento = usuario.documento_identidad.trim()
+    if (!documento || documento === documentoConsultado) return
+
+    const solicitud = ++solicitudEmpleadoRef.current
+    setBuscandoEmpleado(true)
+    try {
+      const empleado = await buscarEmpleadoPorDocumento(documento)
+      if (solicitud !== solicitudEmpleadoRef.current) return
+      setDocumentoConsultado(documento)
+      if (!empleado) {
+        notify('No se encontró ese documento en Odoo; puedes completar los datos manualmente', 'warn')
+        return
+      }
+      setUsuario((actual) => ({
+        ...actual,
+        nombre_completo: empleado.nombre_completo,
+        email: empleado.email,
+        cargo: empleado.cargo,
+      }))
+      notify(`Datos encontrados para ${empleado.nombre_completo}`)
+    } catch (error) {
+      if (solicitud === solicitudEmpleadoRef.current) {
+        notify(`No se pudo consultar Odoo: ${error.message}`, 'error')
+      }
+    } finally {
+      if (solicitud === solicitudEmpleadoRef.current) setBuscandoEmpleado(false)
+    }
+  }
 
   const alEscanear = useCallback(
     async (codigo) => {
@@ -189,8 +229,26 @@ export default function Entrega({ ir, notify }) {
           <input
             required
             value={usuario.documento_identidad}
-            onChange={(e) => setUsuario((p) => ({ ...p, documento_identidad: e.target.value }))}
+            onBlur={buscarEmpleado}
+            onChange={(e) => {
+              const documento = e.target.value
+              solicitudEmpleadoRef.current += 1
+              setBuscandoEmpleado(false)
+              if (documento.trim() !== documentoConsultado) {
+                setDocumentoConsultado('')
+                setUsuario((actual) => ({
+                  ...actual,
+                  documento_identidad: documento,
+                  nombre_completo: '',
+                  email: '',
+                  cargo: '',
+                }))
+              } else {
+                setUsuario((actual) => ({ ...actual, documento_identidad: documento }))
+              }
+            }}
           />
+          {buscandoEmpleado && <span className="muted small">Buscando empleado en Odoo…</span>}
         </label>
         <label>
           Lugar de expedición del documento

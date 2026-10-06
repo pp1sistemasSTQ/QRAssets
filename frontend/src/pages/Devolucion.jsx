@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   actualizarLugarExpedicion,
+  buscarEmpleadoPorDocumento,
   listAsignacionesActivas,
   registrarDevolucion,
   subirActaFirmada,
@@ -13,6 +14,10 @@ import { PageHeader } from '../components/ui'
 export default function Devolucion({ ir, notify, params }) {
   const [activas, setActivas] = useState(null)
   const [personaId, setPersonaId] = useState(params.personaId || '')
+  const [documentoIdentidad, setDocumentoIdentidad] = useState('')
+  const [buscandoEmpleado, setBuscandoEmpleado] = useState(false)
+  const [documentoConsultado, setDocumentoConsultado] = useState('')
+  const solicitudEmpleadoRef = useRef(0)
   const [lugarExpedicion, setLugarExpedicion] = useState('')
   const [ciudad, setCiudad] = useState('MEDELLIN')
   const [observaciones, setObservaciones] = useState('')
@@ -40,6 +45,7 @@ export default function Devolucion({ ir, notify, params }) {
       const persona = m.get(h.persona_id) || {
         nombre: h.usuario_responsable,
         lugarExpedicion: h.lugar_expedicion,
+        documentoIdentidad: h.documento_identidad,
         cantidad: 0,
       }
       persona.cantidad += 1
@@ -49,6 +55,46 @@ export default function Devolucion({ ir, notify, params }) {
   }, [activas])
 
   const usuario = personas.find(([id]) => id === personaId)?.[1]?.nombre || ''
+
+  useEffect(() => {
+    const persona = personas.find(([id]) => id === personaId)?.[1]
+    if (persona) setDocumentoIdentidad(persona.documentoIdentidad || '')
+  }, [personaId, personas])
+
+  async function buscarEmpleado() {
+    const documento = documentoIdentidad.trim()
+    if (!documento || documento === documentoConsultado) return
+
+    const solicitud = ++solicitudEmpleadoRef.current
+    setBuscandoEmpleado(true)
+    try {
+      const empleado = await buscarEmpleadoPorDocumento(documento)
+      if (solicitud !== solicitudEmpleadoRef.current) return
+      setDocumentoConsultado(documento)
+      if (!empleado) {
+        notify('No se encontró ese documento en Odoo', 'warn')
+        return
+      }
+
+      const coincidencia = personas.find(
+        ([, persona]) => persona.documentoIdentidad?.trim() === empleado.documento_identidad?.trim(),
+      )
+      if (!coincidencia) {
+        notify(`${empleado.nombre_completo} no tiene activos pendientes de devolución`, 'warn')
+        return
+      }
+
+      setPersonaId(coincidencia[0])
+      setDocumentoIdentidad(empleado.documento_identidad)
+      notify(`Seleccionado: ${empleado.nombre_completo}`)
+    } catch (error) {
+      if (solicitud === solicitudEmpleadoRef.current) {
+        notify(`No se pudo consultar Odoo: ${error.message}`, 'error')
+      }
+    } finally {
+      if (solicitud === solicitudEmpleadoRef.current) setBuscandoEmpleado(false)
+    }
+  }
 
   useEffect(() => {
     const persona = personas.find(([id]) => id === personaId)?.[1]
@@ -247,11 +293,33 @@ export default function Devolucion({ ir, notify, params }) {
 
       <section className="card">
         <label>
+          Documento de identidad
+          <input
+            value={documentoIdentidad}
+            onChange={(event) => {
+              solicitudEmpleadoRef.current += 1
+              setBuscandoEmpleado(false)
+              setDocumentoIdentidad(event.target.value)
+              setDocumentoConsultado('')
+            }}
+            onBlur={buscarEmpleado}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                buscarEmpleado()
+              }
+            }}
+            placeholder="Escribe la cédula y sal del campo para buscar"
+          />
+          {buscandoEmpleado && <span className="muted small">Buscando empleado en Odoo…</span>}
+        </label>
+        <label>
           ¿Quién devuelve?
           <select
             value={personaId}
             onChange={(e) => {
               setPersonaId(e.target.value)
+              setDocumentoConsultado('')
               setLugarExpedicion('')
               setRecibidos(new Set())
             }}

@@ -21,6 +21,25 @@ export const createActivo = ({ nombre, categoria, numero_serial }) =>
 export const updateActivoEstado = (id, estado) =>
   supabase.from('activos').update({ estado }).eq('id', id).select().single().then(check)
 
+export async function buscarEmpleadoPorDocumento(documento) {
+  const { data, error } = await supabase.functions.invoke('sync-odoo', {
+    body: { action: 'find_employee', payload: { documento_identidad: documento.trim() } },
+  })
+  if (error) {
+    if (error.context instanceof Response) {
+      const respuestaError = await error.context.clone().json()
+      if (typeof respuestaError?.error === 'string') {
+        throw new Error(respuestaError.error)
+      }
+    }
+    throw new Error(error.message)
+  }
+  if (!data || !Object.hasOwn(data, 'employee')) {
+    throw new Error('Odoo devolvió una respuesta de empleado con formato inválido')
+  }
+  return data.employee
+}
+
 const ACTA_SELECT = `
   id, tipo, estado, persona_id, fecha_proceso, firma_url, acta_pdf_url, ciudad, observaciones,
   persona:personas(id, nombre_completo, documento_identidad, email, cargo, lugar_expedicion),
@@ -118,6 +137,51 @@ export async function listAsignacionesActivas() {
   )
 }
 
+export async function listEmpleadosConAsignaciones() {
+  const [{ data: respuestaOdoo, error: errorOdoo }, personas, asignaciones] = await Promise.all([
+    supabase.functions.invoke('sync-odoo', { body: { action: 'list_employees' } }),
+    supabase
+      .from('personas')
+      .select('id, nombre_completo, documento_identidad, email, cargo')
+      .then(check),
+    listAsignacionesActivas(),
+  ])
+  if (errorOdoo) throw new Error(errorOdoo.message)
+  if (!Array.isArray(respuestaOdoo?.employees)) {
+    throw new Error('Odoo devolvió una lista de empleados con formato inválido')
+  }
+
+  const personaPorIdentidad = new Map()
+  personas.forEach((persona) => {
+    const documento = persona.documento_identidad?.trim().toLowerCase()
+    const email = persona.email?.trim().toLowerCase()
+    if (documento) personaPorIdentidad.set(`documento:${documento}`, persona)
+    if (email) personaPorIdentidad.set(`email:${email}`, persona)
+  })
+
+  const asignacionesPorPersona = new Map()
+  asignaciones.forEach((asignacion) => {
+    const activos = asignacionesPorPersona.get(asignacion.persona_id) || []
+    activos.push(asignacion)
+    asignacionesPorPersona.set(asignacion.persona_id, activos)
+  })
+
+  return respuestaOdoo.employees
+    .map((empleado) => {
+      const documento = empleado.documento_identidad?.trim().toLowerCase()
+      const email = empleado.email?.trim().toLowerCase()
+      const persona =
+        (documento && personaPorIdentidad.get(`documento:${documento}`)) ||
+        (email && personaPorIdentidad.get(`email:${email}`))
+
+      return {
+        ...empleado,
+        asignaciones: persona ? asignacionesPorPersona.get(persona.id) || [] : [],
+      }
+    })
+    .sort((a, b) => a.nombre_completo.localeCompare(b.nombre_completo))
+}
+
 export async function listHistorialReciente(limit = 8) {
   const [actas, asignacionesActivas] = await Promise.all([
     supabase.from('actas').select(ACTA_SELECT).order('fecha_proceso', { ascending: false }).limit(limit).then(check),
@@ -133,6 +197,25 @@ export async function listHistorialReciente(limit = 8) {
       estado_proceso: acta.tipo === 'entrega' && detalleActivo.has(detalle.id) ? 'activa' : 'cerrada',
     })),
   )
+}
+
+export async function listActasCerradas() {
+  const pageSize = 500
+  const actas = []
+  let offset = 0
+
+  while (true) {
+    const pagina = await supabase
+      .from('actas')
+      .select(ACTA_SELECT)
+      .eq('estado', 'cerrada')
+      .order('fecha_proceso', { ascending: false })
+      .range(offset, offset + pageSize - 1)
+      .then(check)
+    actas.push(...pagina)
+    if (pagina.length < pageSize) return actas
+    offset += pageSize
+  }
 }
 
 export async function registrarEntrega({ usuario, activoIds, ciudad, observaciones }) {
